@@ -100,12 +100,26 @@ class TransactionsController < ApplicationController
 
     return unless require_account_permission!(account)
 
+    @entry = account.entries.new(entry_params)
+
     if params.dig(:entry, :funding_account_id).present?
-      funding_account = Current.user.accessible_accounts.find(params.dig(:entry, :funding_account_id))
+      funding_account_id = params.dig(:entry, :funding_account_id)
+
+      if funding_account_id.to_s == account.id.to_s
+        flash.now[:alert] = t(".errors.same_account")
+        set_new_transaction_form_options
+        return render :new, status: :unprocessable_entity
+      end
+
+      funding_account = funding_settlement_accounts(excluding: account).find_by(id: funding_account_id)
+      unless funding_account
+        flash.now[:alert] = t(".errors.funding_account_not_found")
+        set_new_transaction_form_options
+        return render :new, status: :unprocessable_entity
+      end
+
       return create_channel_payment(account, funding_account)
     end
-
-    @entry = account.entries.new(entry_params)
 
     if @entry.save
       @entry.sync_account_later
@@ -509,6 +523,18 @@ class TransactionsController < ApplicationController
       @categories = Current.family.categories.alphabetically.to_a
       @merchants = Current.family.available_merchants_for(Current.user).alphabetically.to_a
       @tags = Current.family.tags.alphabetically.to_a
+      selected_account = @entry&.account || Current.user.default_account_for_transactions
+      @funding_settlement_accounts = funding_settlement_accounts(excluding: selected_account).to_a
+    end
+
+    def funding_settlement_accounts(excluding: nil)
+      accounts = Current.family.accounts
+        .writable_by(Current.user)
+        .active
+        .where(accountable_type: %w[Depository CreditCard Loan])
+        .alphabetically
+
+      excluding ? accounts.where.not(id: excluding.id) : accounts
     end
 
     # Filters entry_params based on the user's permission on the account.
@@ -737,7 +763,7 @@ class TransactionsController < ApplicationController
         format.turbo_stream { stream_redirect_back_or_to(account_path(channel_entry.account)) }
       end
     rescue ActiveRecord::RecordNotFound
-      flash[:alert] = "Funding account not found"
+      flash[:alert] = t(".errors.funding_account_not_found")
       redirect_back_or_to root_path
     end
 end

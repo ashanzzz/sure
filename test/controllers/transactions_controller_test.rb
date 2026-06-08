@@ -685,6 +685,123 @@ end
     assert_nil created_entry.transaction.extra["exchange_rate"]
   end
 
+  test "creates channel expense with funding account from HTML form" do
+    channel_account = accounts(:credit_card)
+    funding_account = accounts(:depository)
+
+    assert_difference [ "Entry.count", "Transaction.count" ], 2 do
+      post transactions_url, params: {
+        entry: {
+          account_id: channel_account.id,
+          funding_account_id: funding_account.id,
+          name: "Channel card purchase",
+          date: Date.current,
+          currency: "USD",
+          amount: 42.50,
+          nature: "outflow",
+          entryable_type: "Transaction"
+        }
+      }
+    end
+
+    channel_entry = channel_account.entries.find_by!(name: "Channel card purchase")
+    funding_entry = funding_account.entries.find_by!(name: "#{channel_account.name} - Channel card purchase")
+
+    assert_redirected_to account_url(channel_account)
+    assert_equal channel_account, channel_entry.account
+    assert_equal funding_account, funding_entry.account
+    assert_equal 42.50.to_d, channel_entry.amount
+    assert_equal channel_entry.amount, funding_entry.amount
+    assert channel_entry.excluded?
+    refute funding_entry.excluded?
+    assert_equal true, channel_entry.transaction.extra["channel_payment"]
+    assert_equal funding_account.id, channel_entry.transaction.extra["funding_account_id"]
+    assert_equal true, funding_entry.transaction.extra["channel_auto_record"]
+    assert_equal channel_entry.transaction.id, funding_entry.transaction.channel_record_parent_id
+  end
+
+  test "creates channel income refund with settlement account from HTML form" do
+    channel_account = accounts(:credit_card)
+    settlement_account = accounts(:depository)
+
+    assert_difference [ "Entry.count", "Transaction.count" ], 2 do
+      post transactions_url, params: {
+        entry: {
+          account_id: channel_account.id,
+          funding_account_id: settlement_account.id,
+          name: "Channel refund",
+          date: Date.current,
+          currency: "USD",
+          amount: 18.25,
+          nature: "inflow",
+          entryable_type: "Transaction"
+        }
+      }
+    end
+
+    channel_entry = channel_account.entries.find_by!(name: "Channel refund")
+    settlement_entry = settlement_account.entries.find_by!(name: "#{channel_account.name} - Channel refund")
+
+    assert_redirected_to account_url(channel_account)
+    assert_equal channel_account, channel_entry.account
+    assert_equal settlement_account, settlement_entry.account
+    assert_equal(-18.25.to_d, channel_entry.amount)
+    assert_equal channel_entry.amount, settlement_entry.amount
+    assert channel_entry.excluded?
+    refute settlement_entry.excluded?
+    assert_equal true, channel_entry.transaction.extra["channel_payment"]
+    assert_equal settlement_account.id, channel_entry.transaction.extra["funding_account_id"]
+    assert_equal true, settlement_entry.transaction.extra["channel_auto_record"]
+    assert_equal channel_entry.transaction.id, settlement_entry.transaction.channel_record_parent_id
+  end
+
+  test "rejects self funding from HTML form" do
+    channel_account = accounts(:depository)
+
+    assert_no_difference [ "Entry.count", "Transaction.count" ] do
+      post transactions_url, params: {
+        entry: {
+          account_id: channel_account.id,
+          funding_account_id: channel_account.id,
+          name: "Self-funded channel transaction",
+          date: Date.current,
+          currency: "USD",
+          amount: 10,
+          nature: "outflow",
+          entryable_type: "Transaction"
+        }
+      }
+    end
+
+    assert_response :unprocessable_entity
+    assert_equal I18n.t("transactions.create.errors.same_account"), flash.now[:alert]
+  end
+
+  test "rejects unwritable funding settlement account from HTML form" do
+    sign_in users(:family_member)
+
+    channel_account = accounts(:depository)
+    read_only_funding_account = accounts(:credit_card)
+
+    assert_no_difference [ "Entry.count", "Transaction.count" ] do
+      post transactions_url, params: {
+        entry: {
+          account_id: channel_account.id,
+          funding_account_id: read_only_funding_account.id,
+          name: "Unwritable funding account transaction",
+          date: Date.current,
+          currency: "USD",
+          amount: 10,
+          nature: "outflow",
+          entryable_type: "Transaction"
+        }
+      }
+    end
+
+    assert_response :unprocessable_entity
+    assert_equal I18n.t("transactions.create.errors.funding_account_not_found"), flash.now[:alert]
+  end
+
   private
     def capture_sql_queries
       queries = []
