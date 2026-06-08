@@ -32,6 +32,47 @@ class UsersControllerTest < ActionDispatch::IntegrationTest
     assert_equal "es", @user.reload.locale
   end
 
+  test "family attributes update the active ledger instead of the legacy primary family" do
+    business = Family.create!(name: "Business", currency: "USD")
+    FamilyMembership.create!(user: @user, family: business, role: "admin")
+    @user.sessions.order(updated_at: :desc).first.set_active_family_id(business.id)
+
+    patch user_url(@user), params: {
+      user: {
+        family_attributes: {
+          id: business.id,
+          name: "Business Ledger",
+          country: "US",
+          date_format: "%m/%d/%Y",
+          currency: "USD"
+        }
+      }
+    }
+
+    assert_redirected_to settings_profile_url
+    assert_equal "Business Ledger", business.reload.name
+    assert_not_equal "Business Ledger", @user.family.reload.name
+  end
+
+  test "global admin without active ledger admin membership cannot update active ledger admin fields" do
+    business = Family.create!(name: "Business", currency: "USD")
+    FamilyMembership.create!(user: @user, family: business, role: "member")
+    @user.sessions.order(updated_at: :desc).first.set_active_family_id(business.id)
+
+    patch user_url(@user), params: {
+      user: {
+        family_attributes: {
+          id: business.id,
+          name: "Unauthorized Rename"
+        }
+      }
+    }
+
+    assert_redirected_to settings_profile_url
+    assert_equal I18n.t("users.reset.unauthorized"), flash[:alert]
+    assert_equal "Business", business.reload.name
+  end
+
   test "admin can update enabled family currencies" do
     patch user_url(@user), params: {
       user: {

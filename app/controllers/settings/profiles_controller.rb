@@ -3,7 +3,7 @@ class Settings::ProfilesController < ApplicationController
 
   def show
     @user = Current.user
-    @memberships = Current.family.family_memberships.includes(:user).order(created_at: :asc)
+    @memberships = Current.family.family_memberships.includes(:user).ordered
     @pending_invitations = Current.family.invitations.pending
     @breadcrumbs = [
       [ t("breadcrumbs.home"), root_path ],
@@ -12,7 +12,7 @@ class Settings::ProfilesController < ApplicationController
   end
 
   def destroy
-    unless Current.user.admin?
+    unless current_family_admin?
       flash[:alert] = t("settings.profiles.destroy.not_authorized")
       redirect_to settings_profile_path
       return

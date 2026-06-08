@@ -16,9 +16,17 @@ class ApplicationController < ActionController::Base
   before_action :set_default_chat
   before_action :set_active_storage_url_options
 
-  helper_method :demo_config, :demo_host_match?, :show_demo_warning?
+  helper_method :demo_config, :demo_host_match?, :show_demo_warning?, :current_family_admin?, :current_family_role
 
   private
+    def current_family_admin?
+      Current.user&.admin_for?(Current.family)
+    end
+
+    def current_family_role
+      Current.user&.role_for(Current.family)
+    end
+
     def accept_pending_invitation_for(user)
       return false if user.blank?
 
@@ -45,7 +53,7 @@ class ApplicationController < ActionController::Base
     end
 
     def require_admin!
-      return if Current.user&.admin?
+      return if current_family_admin?
 
       respond_to do |format|
         format.html { redirect_to accounts_path, alert: t("shared.require_admin") }

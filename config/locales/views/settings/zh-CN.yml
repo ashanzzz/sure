@@ -183,6 +183,7 @@ zh-CN:
         danger_zone_title: 危险区域
         delete_account: 删除账户
         delete_account_warning: 删除账户将永久移除您的所有数据，且无法撤销。
+        active_ledger: 当前账本
         reset_account: 重置账户
         reset_account_warning: 重置账户将删除您的所有账户、分类、商户、标签和其他数据，但会保留用户账户本身。
         reset_account_with_sample_data: 重置并预载

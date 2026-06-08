@@ -218,7 +218,7 @@ module SettingsHelper
 
     # Helper used by SETTINGS_ORDER conditions
     def admin_user?
-      Current.user&.admin?
+      current_family_admin?
     end
 
     def self_hosted_and_admin?

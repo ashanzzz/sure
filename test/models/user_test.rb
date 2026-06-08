@@ -49,12 +49,11 @@ class UserTest < ActiveSupport::TestCase
     assert_equal "unique-user@example.com", @user.reload.email
   end
 
-  test "available_families includes the primary and membership families once" do
+  test "available_families returns membership ledgers when memberships exist" do
     additional_family = Family.create!(name: "Business")
     FamilyMembership.create!(user: @user, family: additional_family)
 
-    assert_equal [ @user.family, additional_family ].map(&:id).sort, @user.available_families.map(&:id).sort
-    assert_equal 2, @user.available_families.count
+    assert_equal [ additional_family.id ], @user.reload.available_families.map(&:id)
     assert_equal @user.available_families.map(&:id), @user.available_families.map(&:id).uniq
   end
 

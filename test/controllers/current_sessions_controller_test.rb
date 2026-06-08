@@ -16,6 +16,21 @@ class CurrentSessionsControllerTest < ActionDispatch::IntegrationTest
     assert_equal "asset", session.get_preferred_tab("accounts_sidebar_tab")
   end
 
+
+  test "available families only include membership ledgers once memberships exist" do
+    additional_family = Family.create!(name: "Business")
+    FamilyMembership.create!(user: @user, family: additional_family, role: "member")
+
+    assert_equal [ additional_family ], @user.reload.available_families
+  end
+
+  test "active family falls back to first membership ledger instead of stale primary family" do
+    additional_family = Family.create!(name: "Business")
+    FamilyMembership.create!(user: @user, family: additional_family, role: "member")
+
+    assert_equal additional_family, @user.reload.active_family(@user.sessions.order(updated_at: :desc).first)
+  end
+
   test "can update the active family when user has membership" do
     additional_family = Family.create!(name: "Business")
     FamilyMembership.create!(user: @user, family: additional_family)

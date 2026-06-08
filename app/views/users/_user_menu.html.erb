@@ -1,9 +1,17 @@
 <%# locals: (user:, placement: "right-start", offset: 16, intro_mode: false) %>
 
 <% intro_mode = local_assigns.fetch(:intro_mode, false) %>
-<% family_options = user.available_families.map { |family| { value: family.id, label: family.name, object: family } } %>
 <% current_family = user.active_family(Current.session) %>
-<% current_family_label = current_family&.name || family_options.first&.dig(:label) %>
+<% family_options = user.available_families.map do |family|
+  role = user.role_for(family)
+  role_label = t("users.roles.#{role}", default: role.to_s.humanize)
+  label_parts = [ family.name, role_label ]
+  label_parts << t(".current_ledger") if current_family&.id == family.id
+  { value: family.id, label: label_parts.join(" · "), object: family }
+end %>
+<% current_family_label = family_options.find { |option| option[:value] == current_family&.id }&.dig(:label) || family_options.first&.dig(:label) %>
+<% current_family_role = user.role_for(current_family) if current_family %>
+<% current_family_role_label = t("users.roles.#{current_family_role}", default: current_family_role.to_s.humanize) if current_family_role.present? %>
 
 <div data-testid="user-menu">
   <%# `DS::Popover` (not `DS::Menu`) because the panel includes a
@@ -29,6 +37,12 @@
           <p class="font-medium"><%= user.display_name %></p>
           <% if user.display_name != user.email %>
             <p class="text-secondary"><%= user.email %></p>
+          <% end %>
+          <% if current_family %>
+            <p class="mt-1 text-xs text-secondary">
+              <span class="font-medium text-primary"><%= t(".current_ledger") %>:</span>
+              <%= current_family.name %><%= " · #{current_family_role_label}" if current_family_role_label.present? %>
+            </p>
           <% end %>
         </div>
       </div>

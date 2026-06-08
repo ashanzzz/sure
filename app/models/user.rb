@@ -125,12 +125,15 @@ class User < ApplicationRecord
   end
 
   def available_families
-    [ family, *families ].compact.uniq { |candidate| candidate.id }
+    membership_families = family_memberships.includes(:family).ordered.map(&:family).compact
+    return membership_families.uniq { |candidate| candidate.id } if membership_families.any?
+
+    [ family ].compact
   end
 
   def active_family(current_session = Current.session)
     current_family_id = current_session&.get_active_family_id
-    available_families.find { |candidate| candidate.id.to_s == current_family_id.to_s } || family
+    available_families.find { |candidate| candidate.id.to_s == current_family_id.to_s } || available_families.first
   end
 
   # ── Membership role bridge (PR 2D) ──

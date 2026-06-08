@@ -27,15 +27,22 @@
 
 <% unless Current.user.ui_layout_intro? %>
   <%= settings_section title: Current.family&.moniker == "Group" ? t(".group_title", default: "Group") : t(".household_title"), subtitle: t(".household_subtitle", moniker_plural: family_moniker_plural_downcase, moniker: family_moniker_downcase) do %>
+    <div class="rounded-xl border border-secondary bg-container-inset p-4 text-sm">
+      <p class="uppercase text-xs text-secondary font-medium"><%= t(".active_ledger") %></p>
+      <div class="mt-1 flex flex-wrap items-center gap-2">
+        <p class="font-medium text-primary"><%= Current.family.name %></p>
+        <span class="rounded-md bg-surface px-1.5 py-0.5 uppercase text-secondary font-medium text-xs"><%= t("users.roles.#{current_family_role}", default: current_family_role.to_s.humanize) %></span>
+      </div>
+    </div>
     <div class="space-y-4">
       <%= styled_form_with model: Current.user, class: "space-y-4", data: { controller: "auto-submit-form" } do |form| %>
-        <%= form.fields_for :family do |family_fields| %>
+        <%= form.fields_for :family, Current.family do |family_fields| %>
           <% name_label = Current.family&.moniker == "Group" ? t(".group_form_label", default: "Group name") : t(".household_form_label") %>
           <% name_placeholder = Current.family&.moniker == "Group" ? t(".group_form_input_placeholder", default: "Enter group name") : t(".household_form_input_placeholder") %>
           <%= family_fields.text_field :name,
                 placeholder: name_placeholder,
                 label: name_label,
-                disabled: !Current.user.admin?,
+                disabled: !current_family_admin?,
                 "data-auto-submit-form-target": "auto" %>
         <% end %>
       <% end %>
@@ -51,9 +58,9 @@
             </div>
             <p class="text-primary font-medium text-sm"><%= user.display_name %></p>
             <div class="rounded-md bg-surface px-1.5 py-0.5">
-              <p class="uppercase text-secondary font-medium text-xs"><%= t("users.roles.#{user.role}", default: user.role.humanize) %></p>
+              <p class="uppercase text-secondary font-medium text-xs"><%= t("users.roles.#{membership.role}", default: membership.role.humanize) %></p>
             </div>
-            <% if Current.user.admin? && user != Current.user %>
+            <% if current_family_admin? && user != Current.user %>
               <div class="ml-auto">
                 <%= render DS::Button.new(
                   variant: "icon",
@@ -101,7 +108,7 @@
                   </div>
                 <% end %>
 
-                <% if Current.user.admin? %>
+                <% if current_family_admin? %>
                   <%= render DS::Button.new(
                     variant: "icon",
                     icon: "x",
@@ -114,7 +121,7 @@
             </div>
           <% end %>
         <% end %>
-        <% if Current.user.admin? %>
+        <% if current_family_admin? %>
           <%= link_to new_invitation_path,
                   class: "bg-container-inset flex items-center justify-center gap-2 text-secondary mt-1 hover:bg-container-inset-hover rounded-lg px-4 py-2 w-full text-center",
                   data: { turbo_frame: :modal } do %>
@@ -129,7 +136,7 @@
 
 <%= settings_section title: t(".danger_zone_title") do %>
   <div class="space-y-4">
-    <% if Current.user.admin? %>
+    <% if current_family_admin? %>
       <div class="flex flex-col md:flex-row md:items-center md:justify-between gap-4">
         <div class="w-full md:w-2/3">
           <h3 class="font-medium text-primary"><%= t(".reset_account") %></h3>

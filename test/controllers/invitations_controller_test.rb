@@ -64,6 +64,21 @@ class InvitationsControllerTest < ActionDispatch::IntegrationTest
     assert_equal I18n.t("invitations.create.existing_user_added"), flash[:notice]
   end
 
+  test "global admin without active ledger admin membership cannot create invitations" do
+    business = Family.create!(name: "Business")
+    FamilyMembership.create!(user: @admin, family: business, role: "member")
+
+    sign_in @admin
+    @admin.sessions.order(updated_at: :desc).first.set_active_family_id(business.id)
+
+    assert_no_difference("Invitation.count") do
+      post invitations_url, params: { invitation: { email: "new@example.com", role: "member" } }
+    end
+
+    assert_redirected_to settings_profile_path
+    assert_equal I18n.t("invitations.create.failure"), flash[:alert]
+  end
+
   test "non-admin cannot create invitations" do
     sign_in users(:family_member)
 
@@ -172,6 +187,22 @@ class InvitationsControllerTest < ActionDispatch::IntegrationTest
 
     assert_redirected_to settings_profile_path
     assert_equal I18n.t("invitations.destroy.success"), flash[:notice]
+  end
+
+  test "global admin without active ledger admin membership cannot remove invitations" do
+    business = Family.create!(name: "Business")
+    FamilyMembership.create!(user: @admin, family: business, role: "member")
+    invitation = business.invitations.create!(email: "business@example.com", role: "member", inviter: @admin)
+
+    sign_in @admin
+    @admin.sessions.order(updated_at: :desc).first.set_active_family_id(business.id)
+
+    assert_no_difference("Invitation.count") do
+      delete invitation_url(invitation)
+    end
+
+    assert_redirected_to settings_profile_path
+    assert_equal I18n.t("invitations.destroy.not_authorized"), flash[:alert]
   end
 
   test "non-admin cannot remove invitations" do

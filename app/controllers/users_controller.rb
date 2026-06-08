@@ -113,12 +113,18 @@ class UsersController < ApplicationController
 
     def user_params
       family_attrs = [ :name, :currency, :country, :date_format, :timezone, :locale, :month_start_day, :id ]
-      if Current.user.admin?
+      if current_family_admin?
         family_attrs.push(:moniker, :default_account_sharing)
         family_attrs << { enabled_currencies: [] }
       end
 
-      params.require(:user).permit(
+      normalized = params.require(:user)
+      if normalized[:family_attributes].present? && Current.family.present?
+        normalized = normalized.deep_dup
+        normalized[:family_attributes][:id] = Current.family.id
+      end
+
+      normalized.permit(
         :first_name, :last_name, :email, :profile_image, :redirect_to, :delete_profile_image, :onboarded_at,
         :show_sidebar, :default_period, :default_account_order, :show_ai_sidebar, :ai_enabled, :theme, :set_onboarding_preferences_at, :set_onboarding_goals_at, :locale,
         family_attributes: family_attrs,
@@ -134,15 +140,16 @@ class UsersController < ApplicationController
       family_attrs = params.dig(:user, :family_attributes)
       return false if family_attrs.blank?
 
+      name_changed = family_attrs[:name].present? && family_attrs[:name] != Current.family.name
       moniker_changed = family_attrs[:moniker].present? && family_attrs[:moniker] != Current.family.moniker
       sharing_changed = family_attrs[:default_account_sharing].present? && family_attrs[:default_account_sharing] != Current.family.default_account_sharing
       enabled_currencies_changed = family_attrs.key?(:enabled_currencies)
 
-      moniker_changed || sharing_changed || enabled_currencies_changed
+      name_changed || moniker_changed || sharing_changed || enabled_currencies_changed
     end
 
     def ensure_admin
-      return true if Current.user.admin?
+      return true if current_family_admin?
 
       redirect_to settings_profile_path, alert: I18n.t("users.reset.unauthorized")
       false

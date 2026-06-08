@@ -182,6 +182,7 @@ en:
         confirm_remove_member:
           body: Are you sure you want to remove %{name} from your account?
           title: Remove Member
+        active_ledger: Active ledger
         danger_zone_title: Danger Zone
         delete_account: Delete account
         delete_account_warning: Deleting your account will permanently remove all

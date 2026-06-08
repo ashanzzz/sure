@@ -41,6 +41,39 @@ class Settings::ProfilesControllerTest < ActionDispatch::IntegrationTest
     assert_select "p.text-primary", text: membership_user.display_name
   end
 
+  test "shows members and roles for the active ledger membership" do
+    business = Family.create!(name: "Business")
+    business_member = users(:empty)
+    FamilyMembership.create!(user: @admin, family: business, role: "admin")
+    FamilyMembership.create!(user: business_member, family: business, role: "guest")
+    sign_in @admin
+    @admin.sessions.order(updated_at: :desc).first.set_active_family_id(business.id)
+    get settings_profile_path
+
+    assert_response :success
+    assert_select "p.text-primary", text: business_member.display_name
+    assert_select "p.text-primary", text: @member.display_name, count: 0
+    assert_select "p", text: I18n.t("users.roles.guest")
+    assert_select "p", text: /Business/
+  end
+
+  test "global admin without active ledger admin membership cannot remove members" do
+    business = Family.create!(name: "Business")
+    FamilyMembership.create!(user: @admin, family: business, role: "member")
+    FamilyMembership.create!(user: @member, family: business, role: "member")
+    membership = business.family_memberships.find_by!(user: @member)
+
+    sign_in @admin
+    @admin.sessions.order(updated_at: :desc).first.set_active_family_id(business.id)
+
+    assert_no_difference("FamilyMembership.count") do
+      delete settings_profile_path(membership_id: membership.id)
+    end
+
+    assert_redirected_to settings_profile_path
+    assert_equal I18n.t("settings.profiles.destroy.not_authorized"), flash[:alert]
+  end
+
   test "admin can remove a family membership without deleting the user" do
     sign_in @admin
 

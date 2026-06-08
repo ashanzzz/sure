@@ -18,6 +18,7 @@ en:
       success: Your account has been reset and sample data is being prepared. You’ll see demo data shortly.
     roles:
       admin: Admin
+      guest: Guest
       member: Member
       super_admin: Super admin
     user_menu:

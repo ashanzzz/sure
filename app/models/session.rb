@@ -36,10 +36,7 @@ class Session < ApplicationRecord
   def active_family
     return unless user
 
-    family_id = get_active_family_id
-    return user.family if family_id.blank?
-
-    user.available_families.find { |candidate| candidate.id.to_s == family_id.to_s } || user.family
+    user.active_family(self)
   end
 
   private
