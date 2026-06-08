@@ -10,7 +10,7 @@
 #
 # It's strongly recommended that you check this file into your version control system.
 
-ActiveRecord::Schema[7.2].define(version: 2026_06_06_160000) do
+ActiveRecord::Schema[7.2].define(version: 2026_06_07_000001) do
   # These are extensions that must be enabled in order to support this database
   enable_extension "pgcrypto"
   enable_extension "plpgsql"
@@ -1951,6 +1951,7 @@ ActiveRecord::Schema[7.2].define(version: 2026_06_06_160000) do
     t.datetime "updated_at", null: false
     t.uuid "category_id"
     t.uuid "merchant_id"
+    t.uuid "channel_record_parent_id"
     t.jsonb "locked_attributes", default: {}
     t.string "kind", default: "standard", null: false
     t.string "external_id"
@@ -1963,6 +1964,7 @@ ActiveRecord::Schema[7.2].define(version: 2026_06_06_160000) do
     t.index ["investment_activity_label"], name: "index_transactions_on_investment_activity_label"
     t.index ["kind"], name: "index_transactions_on_kind"
     t.index ["merchant_id"], name: "index_transactions_on_merchant_id"
+    t.index ["channel_record_parent_id"], name: "index_transactions_on_channel_record_parent_id"
   end
 
   create_table "transfers", id: :uuid, default: -> { "gen_random_uuid()" }, force: :cascade do |t|
@@ -2173,6 +2175,7 @@ ActiveRecord::Schema[7.2].define(version: 2026_06_06_160000) do
   add_foreign_key "trades", "securities"
   add_foreign_key "transactions", "categories", on_delete: :nullify
   add_foreign_key "transactions", "merchants"
+  add_foreign_key "transactions", "transactions", column: "channel_record_parent_id", on_delete: :nullify
   add_foreign_key "transfers", "transactions", column: "inflow_transaction_id", on_delete: :cascade
   add_foreign_key "transfers", "transactions", column: "outflow_transaction_id", on_delete: :cascade
   add_foreign_key "users", "accounts", column: "default_account_id", on_delete: :nullify
