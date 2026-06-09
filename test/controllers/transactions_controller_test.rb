@@ -462,6 +462,20 @@ end
     end
   end
 
+  test "new renders funding settlement selector without entry virtual attribute" do
+    funding_account = accounts(:depository)
+
+    get new_transaction_url
+
+    assert_response :success
+    assert_select "label[for='entry_funding_account_id']", text: I18n.t("transactions.form.funding_account_label")
+    assert_select "select[name='entry[funding_account_id]']" do
+      assert_select "option[value='']"
+      assert_select "option[value=?]", funding_account.id
+    end
+    assert_select "p", text: I18n.t("transactions.form.funding_account_help")
+  end
+
   test "new preloads transaction form option data" do
     family = families(:empty)
     user = users(:empty)

@@ -23,10 +23,15 @@
 
     <% if funding_settlement_accounts.any? %>
       <div class="space-y-1">
-        <%= f.select :funding_account_id,
-              options_for_select(funding_settlement_accounts.map { |account| [ account.name, account.id ] }),
-              { include_blank: true, label: t(".funding_account_label") },
-              class: "form-field__input text-ellipsis" %>
+        <div class="form-field">
+          <div class="form-field__body">
+            <%= label_tag "entry_funding_account_id", t(".funding_account_label"), class: "form-field__label" %>
+            <%= select_tag "entry[funding_account_id]",
+                  options_for_select(funding_settlement_accounts.map { |account| [ account.name, account.id ] }),
+                  include_blank: true,
+                  class: "form-field__input text-ellipsis" %>
+          </div>
+        </div>
         <p class="text-xs text-secondary"><%= t(".funding_account_help") %></p>
       </div>
     <% end %>
