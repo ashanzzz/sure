@@ -1,0 +1,96 @@
+name: Build Sure AIO test image
+
+# Builds a single self-contained debug image (Ruby app + PostgreSQL + Redis +
+# Node + Chromium + SSHD) so the full `bin/rails test` suite can run standalone
+# and be debugged interactively over SSH. Pushes to GHCR.
+
+on:
+  push:
+    branches:
+      - test/sure-aio-debug
+  workflow_dispatch:
+    inputs:
+      source_ref:
+        description: "Branch/SHA to bake into the image (app source under test)"
+        required: true
+        default: feature/channel-payment-2192
+
+permissions:
+  contents: read
+  packages: write
+
+concurrency:
+  group: sure-aio-test-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  REGISTRY: ghcr.io
+  IMAGE_NAME: ashanzzz/sure-aio-test
+
+jobs:
+  build:
+    name: Build and push AIO test image
+    runs-on: ubuntu-24.04
+    timeout-minutes: 90
+    steps:
+      - name: Resolve source ref
+        id: ref
+        run: |
+          REF="${{ github.event.inputs.source_ref }}"
+          if [ -z "$REF" ]; then REF="${{ github.ref_name }}"; fi
+          echo "source_ref=$REF" >> "$GITHUB_OUTPUT"
+          echo "Building AIO test image from app ref: $REF"
+
+      # App source = the branch under test (where the channel-payment code lives)
+      - name: Check out app source
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ steps.ref.outputs.source_ref }}
+          path: app
+
+      # Build tooling (Dockerfile.aio-test + entrypoint + authorized_keys) lives
+      # on the branch that hosts this workflow.
+      - name: Check out build tooling
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ github.ref_name }}
+          path: tooling
+
+      - name: Assemble build context
+        run: |
+          cp tooling/.devcontainer/aio-test-entrypoint.sh app/.devcontainer/aio-test-entrypoint.sh
+          cp tooling/.devcontainer/aio-test-authorized_keys app/.devcontainer/aio-test-authorized_keys
+          cp tooling/Dockerfile.aio-test app/Dockerfile.aio-test
+          echo "=== context assembled ==="
+          ls -la app/.devcontainer/ | grep aio-test || true
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Log in to GHCR
+        uses: docker/login-action@v3
+        with:
+          registry: ${{ env.REGISTRY }}
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Build and push image
+        uses: docker/build-push-action@v6
+        with:
+          context: app
+          file: app/Dockerfile.aio-test
+          platforms: linux/amd64
+          push: true
+          tags: |
+            ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:debug
+            ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:${{ steps.ref.outputs.source_ref }}
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+          provenance: false
+
+      - name: Print run instructions
+        run: |
+          echo "Image: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:debug"
+          echo "Run:   docker run -d --name sure-aio-test -p 2222:22 -p 3000:3000 ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:debug"
+          echo "SSH:   ssh -p 2222 dev@<host>   (key-only)"
+          echo "Tests: ssh in, then  cd /workspace && bin/rails test"
