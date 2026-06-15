@@ -1,0 +1,83 @@
+# syntax = docker/dockerfile:1
+#
+# Sure AIO test/debug image — front + back end in ONE container.
+# Bundles Ruby app + PostgreSQL + Redis + Node + Chromium + SSHD so it can run
+# the full `bin/rails test` (unit + system) suite standalone and be debugged
+# interactively over SSH.
+#
+# Build:  via .github/workflows/build-aio-test.yml -> ghcr.io/ashanzzz/sure-aio-test
+# Run:    docker run -d --name sure-aio-test -p 2222:22 -p 3000:3000 \
+#           ghcr.io/ashanzzz/sure-aio-test:debug
+# Debug:  ssh -p 2222 -i <key> dev@<host>   (key baked from authorized_keys)
+#
+ARG RUBY_VERSION=3.4.7
+FROM ruby:${RUBY_VERSION}-slim-bookworm
+
+ENV DEBIAN_FRONTEND=noninteractive \
+    RAILS_ENV=test \
+    BUNDLE_PATH=/usr/local/bundle \
+    DB_HOST=127.0.0.1 \
+    DB_PORT=5432 \
+    POSTGRES_USER=postgres \
+    POSTGRES_PASSWORD=postgres \
+    REDIS_URL=redis://localhost:6379/1 \
+    DATABASE_URL=postgres://postgres:postgres@localhost:5432 \
+    PLAID_CLIENT_ID=foo \
+    PLAID_SECRET=bar \
+    PGDATA=/var/lib/postgresql/data \
+    APP_DIR=/workspace
+
+# ── System packages: build chain + PG + Redis + Node + Chromium + SSHD ──────
+RUN apt-get update -qq \
+  && apt-get -y install --no-install-recommends \
+    apt-utils build-essential curl git vim procps iproute2 \
+    libpq-dev libyaml-dev libyaml-0-2 libvips42 imagemagick \
+    postgresql postgresql-client \
+    redis-server \
+    openssh-server openssh-client \
+    chromium chromium-driver \
+    ca-certificates gnupg \
+  && rm -rf /var/lib/apt/lists /var/cache/apt/archives
+
+# Node.js 24 (matches CI lint_js / asset build)
+RUN curl -fsSL https://deb.nodesource.com/setup_24.x | bash - \
+  && apt-get install -y nodejs \
+  && rm -rf /var/lib/apt/lists /var/cache/apt/archives
+
+RUN gem install bundler foreman
+
+# ── App source (whole repo at build context = the branch being built) ───────
+WORKDIR ${APP_DIR}
+COPY . ${APP_DIR}
+
+# Ruby gems — ALL groups (incl. development + test, unlike the prod image)
+RUN bundle config set --local path "${BUNDLE_PATH}" \
+  && bundle install --jobs 4 --retry 3
+
+# JS deps (importmap-based; npm only needed for Biome lint + any node tooling)
+RUN if [ -f package-lock.json ]; then npm ci || npm install; \
+    elif [ -f package.json ]; then npm install; fi
+
+# ── SSH debug access (key-only, root + dev user) ────────────────────────────
+RUN mkdir -p /var/run/sshd /root/.ssh \
+  && useradd -m -s /bin/bash dev \
+  && mkdir -p /home/dev/.ssh \
+  && sed -i 's/^#\?PasswordAuthentication.*/PasswordAuthentication no/' /etc/ssh/sshd_config \
+  && sed -i 's/^#\?PermitRootLogin.*/PermitRootLogin prohibit-password/' /etc/ssh/sshd_config
+COPY .devcontainer/aio-test-authorized_keys /root/.ssh/authorized_keys
+COPY .devcontainer/aio-test-authorized_keys /home/dev/.ssh/authorized_keys
+RUN chmod 700 /root/.ssh /home/dev/.ssh \
+  && chmod 600 /root/.ssh/authorized_keys /home/dev/.ssh/authorized_keys \
+  && chown -R dev:dev /home/dev/.ssh \
+  && chown -R dev:dev ${APP_DIR}
+
+# Chromium for Selenium-driven system tests (headless, no remote grid)
+ENV CHROME_BIN=/usr/bin/chromium \
+    SELENIUM_BROWSER=chrome
+
+COPY .devcontainer/aio-test-entrypoint.sh /usr/local/bin/aio-test-entrypoint
+RUN chmod +x /usr/local/bin/aio-test-entrypoint
+
+EXPOSE 22 3000
+ENTRYPOINT ["/usr/local/bin/aio-test-entrypoint"]
+CMD ["sleep", "infinity"]
