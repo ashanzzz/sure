@@ -38,8 +38,11 @@ jobs:
         run: |
           REF="${{ github.event.inputs.source_ref }}"
           if [ -z "$REF" ]; then REF="${{ github.ref_name }}"; fi
+          # slugify for a valid docker tag (no slashes etc.)
+          SLUG="$(echo "$REF" | tr '/' '-' | tr -cd 'A-Za-z0-9._-')"
           echo "source_ref=$REF" >> "$GITHUB_OUTPUT"
-          echo "Building AIO test image from app ref: $REF"
+          echo "source_slug=$SLUG" >> "$GITHUB_OUTPUT"
+          echo "Building AIO test image from app ref: $REF (tag slug: $SLUG)"
 
       # App source = the branch under test (where the channel-payment code lives)
       - name: Check out app source
@@ -83,7 +86,7 @@ jobs:
           push: true
           tags: |
             ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:debug
-            ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:${{ steps.ref.outputs.source_ref }}
+            ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:${{ steps.ref.outputs.source_slug }}
           cache-from: type=gha
           cache-to: type=gha,mode=max
           provenance: false
