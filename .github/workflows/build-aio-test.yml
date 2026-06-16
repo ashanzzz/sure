@@ -176,7 +176,10 @@ jobs:
             export DATABASE_URL="postgres://postgres:postgres@127.0.0.1:5432/sure_test"
             export REDIS_URL="redis://127.0.0.1:6379/1"
             export RAILS_ENV=test
-            bin/rails db:prepare
+            # AIO image may already have a seeded DB from its build phase, so
+            # drop+create+schema:load gives us a deterministic clean slate
+            # (db:prepare blew up on duplicate FK constraints across reruns).
+            bin/rails db:drop db:create db:schema:load
             bin/rails test
           '
 
