@@ -8,12 +8,22 @@ on:
   push:
     branches:
       - test/sure-aio-debug
+      - feature/channel-payment-2192
+  pull_request:
+    types: [opened, synchronize, reopened, labeled]
+    paths-ignore:
+      - 'charts/**'
+      - 'docs/**'
   workflow_dispatch:
     inputs:
       source_ref:
-        description: "Branch/SHA to bake into the image (app source under test)"
-        required: true
+        description: App branch to bake into the image
+        required: false
         default: feature/channel-payment-2192
+      run_tests:
+        description: Run bin/rails test inside the built image
+        required: false
+        default: 'true'
 
 permissions:
   contents: read
@@ -26,44 +36,66 @@ concurrency:
 env:
   REGISTRY: ghcr.io
   IMAGE_NAME: ashanzzz/sure-aio-test
+  # Branch that always carries the AIO build tooling (Dockerfile.aio-test + .devcontainer helpers).
+  TOOLING_REF: test/sure-aio-debug
 
 jobs:
   build:
     name: Build and push AIO test image
     runs-on: ubuntu-24.04
     timeout-minutes: 90
+    outputs:
+      image_sha: ${{ steps.ref.outputs.image_sha }}
+      source_slug: ${{ steps.ref.outputs.source_slug }}
+
     steps:
-      - name: Resolve source ref
-        id: ref
+      - id: ref
+        name: Resolve app source ref
+        shell: bash
         run: |
-          REF="${{ github.event.inputs.source_ref }}"
-          if [ -z "$REF" ]; then REF="${{ github.ref_name }}"; fi
-          # slugify for a valid docker tag (no slashes etc.)
+          set -euo pipefail
+          # PR builds bake the PR head; dispatch honours the input; push uses the pushed branch.
+          if [ -n "${{ github.event.inputs.source_ref }}" ]; then
+            REF="${{ github.event.inputs.source_ref }}"
+          elif [ "${{ github.event_name }}" = "pull_request" ]; then
+            REF="${{ github.event.pull_request.head.ref }}"
+          else
+            REF="${{ github.ref_name }}"
+          fi
           SLUG="$(echo "$REF" | tr '/' '-' | tr -cd 'A-Za-z0-9._-')"
+          SHA_SHORT="$(echo "${{ github.sha }}" | cut -c1-7)"
+          BASE="${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}"
           echo "source_ref=$REF" >> "$GITHUB_OUTPUT"
           echo "source_slug=$SLUG" >> "$GITHUB_OUTPUT"
-          echo "Building AIO test image from app ref: $REF (tag slug: $SLUG)"
+          echo "sha_short=$SHA_SHORT" >> "$GITHUB_OUTPUT"
+          echo "image_sha=${BASE}:sha-${SHA_SHORT}" >> "$GITHUB_OUTPUT"
+          echo "Building AIO test image from app ref: $REF (tag slug: $SLUG, sha: $SHA_SHORT)"
 
-      # App source = the branch under test (where the channel-payment code lives)
       - name: Check out app source
         uses: actions/checkout@v4
         with:
           ref: ${{ steps.ref.outputs.source_ref }}
           path: app
+          persist-credentials: false
 
-      # Build tooling (Dockerfile.aio-test + entrypoint + authorized_keys) lives
-      # on the branch that hosts this workflow.
       - name: Check out build tooling
         uses: actions/checkout@v4
         with:
-          ref: ${{ github.ref_name }}
+          ref: ${{ env.TOOLING_REF }}
           path: tooling
+          persist-credentials: false
 
       - name: Assemble build context
+        shell: bash
         run: |
+          set -euo pipefail
+          mkdir -p app/.devcontainer
           cp tooling/.devcontainer/aio-test-entrypoint.sh app/.devcontainer/aio-test-entrypoint.sh
           cp tooling/.devcontainer/aio-test-authorized_keys app/.devcontainer/aio-test-authorized_keys
           cp tooling/Dockerfile.aio-test app/Dockerfile.aio-test
+          if [ -f tooling/.dockerignore ]; then
+            cp tooling/.dockerignore app/.dockerignore
+          fi
           echo "=== context assembled ==="
           ls -la app/.devcontainer/ | grep aio-test || true
 
@@ -84,16 +116,76 @@ jobs:
           file: app/Dockerfile.aio-test
           platforms: linux/amd64
           push: true
+          provenance: false
+          build-args: |
+            BUILD_COMMIT_SHA=${{ github.sha }}
           tags: |
             ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:debug
             ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:${{ steps.ref.outputs.source_slug }}
+            ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:sha-${{ steps.ref.outputs.sha_short }}
           cache-from: type=gha
           cache-to: type=gha,mode=max
-          provenance: false
 
-      - name: Print run instructions
+  test-on-aio:
+    name: Run rails test inside AIO image
+    needs: build
+    runs-on: ubuntu-24.04
+    timeout-minutes: 45
+    if: ${{ github.event.inputs.run_tests != 'false' }}
+    permissions:
+      contents: read
+      packages: read
+
+    steps:
+      - name: Log in to GHCR
+        uses: docker/login-action@v3
+        with:
+          registry: ${{ env.REGISTRY }}
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Start AIO container
+        shell: bash
         run: |
-          echo "Image: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:debug"
-          echo "Run:   docker run -d --name sure-aio-test -p 2222:22 -p 3000:3000 ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:debug"
-          echo "SSH:   ssh -p 2222 dev@<host>   (key-only)"
-          echo "Tests: ssh in, then  cd /workspace && bin/rails test"
+          set -euo pipefail
+          IMAGE="${{ needs.build.outputs.image_sha }}"
+          echo "Pulling $IMAGE"
+          docker pull "$IMAGE"
+          docker run -d --name aio --shm-size=2g "$IMAGE"
+          echo "AIO_IMAGE=$IMAGE" >> "$GITHUB_ENV"
+
+      - name: Wait for Postgres inside container
+        shell: bash
+        run: |
+          set -euo pipefail
+          for i in $(seq 1 30); do
+            if docker exec aio pg_isready -h 127.0.0.1 -p 5432 >/dev/null 2>&1; then
+              echo "Postgres ready after ${i}s"
+              break
+            fi
+            sleep 2
+          done
+
+      - name: Prepare DB and run tests
+        shell: bash
+        run: |
+          set -euo pipefail
+          docker exec aio bash -lc '
+            set -euo pipefail
+            cd /workspace
+            export DATABASE_URL="postgres://postgres:postgres@127.0.0.1:5432/sure_test"
+            export REDIS_URL="redis://127.0.0.1:6379/1"
+            export RAILS_ENV=test
+            bin/rails db:prepare
+            bin/rails test
+          '
+
+      - name: Dump container logs on failure
+        if: failure()
+        shell: bash
+        run: docker logs aio || true
+
+      - name: Tear down container
+        if: always()
+        shell: bash
+        run: docker rm -f aio || true
